@@ -1,0 +1,802 @@
+---
+title: "Improve User App Usage"
+date: "4/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+# install.packages('maps')
+library(maps)
+# install.packages('ggthemes')
+library(ggthemes)
+library(here)
+```
+
+```{r}
+# import data
+dat.appuse <- read_csv("Data/app_usage.csv", col_names = TRUE)
+dat.demo <- read_csv("Data/emographics.csv", col_names = TRUE)
+dat.userex <- read_csv("Data/survey_responses.csv", col_names = TRUE)
+glimpse(dat.appuse) #Rows: 3,811
+glimpse(dat.demo) #Rows: 3,811
+glimpse(dat.userex) #Rows: 2,800
+```
+
+There are 3811 total unique users in  app_usage and demographic data sets. There are only 1865 unique users in the ex survey data sets. In the ex survey data, only 935 users completed the survey twice (immediately after signing up and 14 days post); 930 users only completed it once.
+```{r}
+# check data points for each data set
+length(unique(dat.appuse$userid)) #N = 3811
+length(unique(dat.demo$userid)) #N = 3811 
+length(unique(dat.userex$userid)) #N =  1865
+
+dat.userex %>% 
+   group_by(time) %>%
+   summarise(n())
+
+dat.userex %>% 
+  group_by(userid) %>%
+  summarise(time_freq = n())  %>% 
+  group_by(time_freq) %>%
+  summarise(n())
+
+```
+
+```{r}
+#merge datasets
+dat.appuse.demo <- dat.appuse %>% left_join(
+  dat.demo, by = c("userid" = "userid"))
+glimpse(dat.appuse.demo)
+
+```
+
+## Data Exploration
+
+### Missing data over 14 days
+
+```{r}
+dat.appuse.demo %>% 
+  summarise_at(vars(day1:day14),
+               funs(usersize=sum(is.na(.)))) %>%
+  pivot_longer(cols = day1_usersize:day14_usersize,
+             names_to = c("day"),
+             values_to = c("usersize")) %>%
+  separate(col = "day", c("day","type")) %>%
+  separate(col = "day", c("name","day"),"day") %>%
+  select(day, usersize) %>%
+  mutate(day = as.numeric(day)) %>%
+  ggplot(aes(x=day, y=usersize)) +
+  geom_line() + 
+  labs(title = "Missing data per Day",
+       y = "User Size (no-login/missing)",
+       x = "Day") + 
+  scale_x_continuous(  breaks = c(1:14,1)) +
+    theme_classic()
+```
+
+```{r}
+dat.appuse.demo %>% 
+  group_by(metro_area) %>%
+  summarise_at(vars(day1:day14),
+               funs(usersize=sum(is.na(.))))%>%
+  pivot_longer(cols = day1_usersize:day14_usersize,
+             names_to = c("day"),
+             values_to = c("usersize")) %>%
+  separate(col = "day", c("day","type")) %>%
+  separate(col = "day", c("name","day"),"day") %>%
+  select(metro_area, day, usersize)%>%
+  mutate(day = as.numeric(day)) %>%
+  ggplot(aes(x=day, y=usersize)) +
+  geom_line() + 
+  labs(title = "Missing data per Day for each metro area",
+       y = "User Size (no-login/missing)",
+       x = "Day") +
+    theme_bw() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  facet_wrap(~metro_area)
+
+```
+
+### App Usage Trend over 14 days
+Total App Usage per day for 14 days (before imputation for missing data; averaged by total number of users)
+```{r}
+ dat.appuse.demo %>% 
+    summarise(user_size = n())
+
+dat.appuse.demo %>% 
+  summarise_at(vars(day1:day14),
+               funs(#usersize=sum(!is.na(.)), 
+                    totalappuse=sum(., na.rm = TRUE))
+               )  %>%
+  pivot_longer(cols = day1_totalappuse:day14_totalappuse,
+               names_to = c("day"),
+               values_to = c("totalappuse"))%>%
+  separate(col = "day", c("day","type")) %>%
+  separate(col = "day", c("name","day"),"day") %>% select(-name,-type) %>% 
+  mutate(day = as.numeric(day),
+         totalappuse_perusesize = totalappuse/3811) %>% 
+  ggplot(aes(x=day, y=totalappuse_perusesize)) +
+  geom_line() + 
+  labs(title = "Total App Usage per Day Per User",
+       y = "Total Usage 
+       (Averaged by Total Number of Users)",
+       x = "Day") +
+  scale_x_continuous(  breaks = c(1:14,1)) +
+    theme_classic()
+```
+Total App Usage per day for 14 days (before imputation for missing data; averaged by total available data points per day)
+```{r}
+# https://uc-r.github.io/ts_exploration
+# library(forecast)
+# library(fpp2)
+dat.appuse.demo %>% 
+  summarise_at(vars(day1:day14),
+               funs(usersize=sum(!is.na(.)), 
+                    totalappuse=sum(., na.rm = TRUE))) %>%
+  pivot_longer(cols = day1_usersize:day14_totalappuse,
+               names_to = c("day_n_appuse"),
+               values_to = c("usersize_totalappuse")) %>%
+  separate(col = "day_n_appuse", c("day","type")) %>%
+  pivot_wider(
+             names_from = c("type"),
+             values_from = c("usersize_totalappuse")) %>%
+  separate(col = "day", c("name","day"),"day") %>% select(-name) %>% 
+  mutate(day = as.numeric(day),
+         totaldailyappuse_avg=totalappuse/usersize) %>%
+  arrange(day) %>% 
+  ggplot(aes(x=day, y=totaldailyappuse_avg)) +
+  geom_line() + 
+  labs(title = "Total App Usage per Day",
+       y = "Total Usage (Average by Number of Users logged in each day)",
+       x = "Day") +
+  scale_x_continuous(  breaks = c(1:14,1)) +
+    theme_classic()
+# dat.appuse_long.ts <- ts(dat.appuse_long["totaldailyappuse"], start = 1, frequency = 1)
+# str(dat.appuse_long.ts)
+# autoplot(dat.appuse_long.ts) +
+#   labs("Total App Usage per Day",
+#        y = "Total App Usage",
+#        x = "Day")
+ 
+```
+For each metro area, there's a downward trend of total app usage (sum of app usage, averaged by the number of users in each area) over the span of 14 days. Missing data in days 10-14 are not imputed here.
+```{r}
+dat.appuse.demo %>% 
+  group_by(metro_area) %>%
+  summarise_at(vars(day1:day14),
+               funs(usersizeperday=sum(!is.na(.)), 
+                    totalappuse=sum(., na.rm = TRUE))) %>%
+  pivot_longer(cols = day1_usersizeperday:day14_totalappuse,
+               names_to = c("usersize_perday_totalappuse"),
+               values_to = c("value")) %>%
+  separate(col = "usersize_perday_totalappuse", c("day","type"),sep = "_") %>%
+  pivot_wider(names_from = c("type"),
+             values_from = c("value")) %>%
+  separate(col = "day", c("name","day"),"day") %>% select(-name) %>% 
+  left_join(
+  dat.appuse.demo %>% 
+    group_by(metro_area) %>%
+    summarise(user_size_by_region = n()) ,
+  by=c("metro_area" = "metro_area")) %>%
+  mutate(day = as.numeric(day),
+         totaldailyappuse_avg=totalappuse/user_size_by_region 
+         ,totaldailyappuse_avg_perday=totalappuse/usersizeperday
+         ) -> dat.appuse.demo_usage_byregion
+```
+
+```{r}
+dat.appuse.demo_usage_byregion %>%
+  ggplot(aes(x=day, y=totaldailyappuse_avg_perday)) +
+  geom_line() + 
+  labs(title = "Total App Usage per Day for Each Metro Area",
+       y = "Total Usage 
+       (Averaged by Number of Users logged in each day)",
+       x = "Day") +
+    theme_bw() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  facet_wrap(~metro_area, nrow = 4)
+```
+
+```{r}
+dat.appuse.demo_usage_byregion %>%
+  ggplot(aes(x=day, y=totaldailyappuse_avg)) +
+  geom_line() + 
+  labs(title = "Total App Usage per Day for Each Metro Area",
+       y = "Total Usage 
+       (Average by the number of Users in that region)",
+       x = "Day") +
+    theme_bw() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  facet_wrap(~metro_area, nrow = 4) 
+# dat.appuse_long.metro_area.ts <- ts(dat.appuse_long.metro_area["totaldailyappuse"], start = 1, frequency = 1)
+# str(dat.appuse_long.metro_area.ts)
+# 
+# autoplot(dat.appuse_long.metro_area.ts, facets = TRUE) +
+#   labs("Total App Usage per Day",
+#        y = "Total App Usage",
+#        x = "Day")
+```
+### explore trends in different demographics (metro_area, gender, age_range)
+#### metro_area
+Metro areas with top 5 user sizes: LA, SF, None of Above, DS, SEA, NYC
+```{r}
+# https://stackoverflow.com/questions/30385415/r-map-plot-without-longitude-and-latitude 
+# length(unique(dat.appuse.demo$userid)) # N = 3811
+# nrow(dat.appuse.demo)
+table(dat.appuse.demo$metro_area)
+
+dat.appuse.demo %>% 
+  group_by(metro_area) %>%
+  summarise(user_size_by_region = n(),
+            user_size_by_region_perc = round(user_size_by_region/3811*100,2)) %>% 
+  arrange(desc(user_size_by_region_perc)) %>%
+  # select(metro_area,user_size_by_region) %>%
+  # arrange(desc(user_size_by_region)) %>%
+  ggplot(aes(x=reorder(metro_area, -user_size_by_region_perc) ,y = user_size_by_region_perc)) +
+  geom_bar(stat="identity") + 
+  labs(title = "Total User Size by Metro Area",
+      x = "Metro Area",
+      y = "Total User Size (%)") +
+  geom_text(aes(label = paste0(user_size_by_region_perc,"%")), hjust=1.2, color="white", size=3.5) +
+  theme_classic() +
+  coord_flip() 
+```
+There's not much difference in terms of total usage over 14 days (averaged by the numbers of users) in different metro areas
+```{r}
+dat.appuse.demo %>% 
+  group_by(metro_area) %>%
+  summarise_at(vars(day1:day14),funs(sum(., na.rm = TRUE))) %>%
+  mutate(totalusebyregion = 
+           rowSums(.[,c(paste0("day",seq(1,14,1)))], na.rm = T)) %>%
+  left_join(
+    dat.appuse.demo %>% 
+      group_by(metro_area) %>%
+      summarise(user_size_by_region = n()),
+    by=c("metro_area" = "metro_area")) %>%
+  mutate(averageusebyregion = 
+           round(totalusebyregion/user_size_by_region,digits = 2)) %>%
+  ggplot(aes(x=reorder(metro_area, -averageusebyregion),y = averageusebyregion)) +
+  geom_bar(stat="identity") + 
+  labs(title = "Total App Usage by Metro Area",
+      x = "Metro Area",
+      y = "Total User Size (averaged by user size)") +
+  geom_text(aes(label=averageusebyregion), hjust=1.2, color="white", size=3.5) +
+  theme_classic() +
+  coord_flip() 
+```
+
+
+
+#### gender
+```{r}
+table(dat.appuse.demo$gender)
+dat.appuse.demo %>% 
+  group_by(gender) %>%
+  summarise(user_size_by_gender = n(),
+            user_size_by_gender_perc = round(user_size_by_gender/3811*100,2)) %>% 
+  # arrange(desc(user_size_by_gender)) %>%
+  # select(gender,user_size_by_gender) %>%
+  ggplot(aes(x=reorder(gender, -user_size_by_gender_perc) ,y = user_size_by_gender_perc)) +
+  geom_bar(stat="identity") + 
+  labs(title = "Total User Size by Gender",
+      x = "Gender",
+      y = "Total User Size (%)") +
+  geom_text(aes(label = paste0(user_size_by_gender_perc,"%")), hjust=1.2, color="white", size=3.5) +
+  theme_classic() +
+    theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 0, hjust = .5, vjust = .5, face = "plain"),
+        axis.text.y = element_text(color = "grey20", size = 10, angle = 0, hjust = 1, vjust = 0, face = "plain"), 
+        axis.title.x = element_text(color = "grey20", size = 12, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20", size = 12, angle = 90, hjust = .5, vjust = .5, face = "plain")) +   coord_flip() 
+```
+
+```{r}
+dat.appuse.demo_gender_nonmissinguser <-dat.appuse.demo %>%
+       group_by(gender) %>%
+       summarise_at(vars(day1:day14),
+               funs(usersizeperday=sum(!is.na(.)))) %>%
+       pivot_longer(cols = day1_usersizeperday:day14_usersizeperday,
+                    names_to = "day_usersizeperday",
+                    values_to = "usersizeperday") %>%
+       separate(day_usersizeperday, c("day","type"),sep="_") %>%
+       separate(col = "day", c("name","day"),"day") %>%
+       select(-type,-name)
+dat.appuse.demo_gender_nonmissinguser
+```
+not much gender differences in terms of total usage (averaged by the number of users for each gender)
+```{r}
+dat.appuse.demo %>% 
+  group_by(gender) %>%
+  summarise_at(vars(day1:day14),funs(sum(., na.rm = TRUE))) %>%
+  mutate(totalusebygender = 
+           rowSums(.[,c(paste0("day",seq(1,14,1)))], na.rm = T)) %>%
+  # pivot_longer(cols = day1:day14,
+  #              names_to = "day",
+  #              values_to = totalusebygender)
+  left_join(
+  dat.appuse.demo %>% 
+  group_by(gender) %>%
+  summarise(user_size_by_gender = n()) %>% 
+  arrange(desc(user_size_by_gender)) %>%
+  select(gender,user_size_by_gender)
+  ,by = c("gender" = "gender")
+  ) %>%
+  select(gender, user_size_by_gender,totalusebygender) %>%
+  mutate(totalusebygender_avg = totalusebygender/user_size_by_gender)
+
+```
+
+#### age_range
+core users are within 25 to 34 age range. Not much differences in terms of average total use
+```{r}
+table(dat.appuse.demo$age_range)
+
+dat.appuse.demo %>% 
+  group_by(age_range) %>%
+  summarise(user_size_by_age = n(),
+            user_size_by_age_perc = round(user_size_by_age/3811*100,2)) %>% 
+  # arrange(desc(user_size_by_age)) %>%
+  # select(gender,user_size_by_age) %>%
+  ggplot(aes(x=reorder(age_range, -user_size_by_age_perc) ,y = user_size_by_age_perc)) +
+  geom_bar(stat="identity") + 
+  labs(title = "Total User Size by Age Range",
+      x = "Age Range",
+      y = "Total User Size (%)") +
+  geom_text(aes(label = paste0(user_size_by_age_perc,"%")), hjust=1.2, color="white", size=3.5) +
+  theme_classic() +
+  coord_flip() 
+
+
+dat.appuse.demo %>% 
+  group_by(age_range) %>%
+  summarise(user_size_by_age = n()) %>% 
+  arrange(desc(user_size_by_age)) %>%
+  select(age_range,user_size_by_age) %>%
+  left_join(
+    dat.appuse.demo %>% 
+  group_by(age_range) %>%
+  summarise_at(vars(day1:day14),funs(sum(., na.rm = TRUE))) %>%
+  mutate(totalusebyage = 
+           rowSums(.[,c(paste0("day",seq(1,14,1)))], na.rm = T))
+  , by = c("age_range" = "age_range")
+  ) %>% 
+  mutate(totalusebyage_avg = totalusebyage/user_size_by_age) %>%
+  arrange(desc(user_size_by_age)) %>%
+  select(age_range,user_size_by_age, totalusebyage, totalusebyage_avg)
+    
+    
+    
+
+```
+
+### User Experience Data
+First, look at descriptive statistics: there's a slight decrease in stress level after using the app for 14 days
+```{r}
+glimpse(dat.userex)
+
+dat.userex %>%
+  group_by(time) %>%
+  summarise_at(vars(-userid), funs(M = round(mean(., na.rm = T),2), 
+                                   SD = round(sd(., na.rm = T),2))) %>%
+  pivot_longer(cols = -time,
+               names_to = "Item_Statistic",
+               values_to = "value") %>%
+  separate(col = Item_Statistic,
+           c("Item","Statistic_Type"),
+           sep = "_") %>%
+  pivot_wider(names_from = "Statistic_Type", values_from = "value") %>%
+  pivot_wider(names_from = "time",values_from = c("M","SD"))
+
+```
+Distribution of responses to each item: All overwhelmingly positive
+```{r}
+dat.userex %>% filter(time %in% "sign up") %>% select(3) %>% hist()
+dat.userex %>% filter(time %in% "sign up") %>% select(4) %>% hist()
+dat.userex %>% filter(time %in% "sign up") %>% select(5) %>% hist()
+dat.userex %>% filter(time %in% "sign up") %>% select(6) %>% hist()
+dat.userex %>% filter(time %in% "sign up") %>% select(7) %>% hist()
+dat.userex %>% filter(time %in% "sign up") %>% select(8) %>% hist()
+
+dat.userex %>% filter(time %in% "post-14 days")  %>% select(8) %>% hist()
+dat.userex %>% filter(time %in% "post-14 days")  %>% select(9) %>% hist()
+
+
+```
+Correlations among items when signing up: items are highly correlated
+```{r}
+library(Hmisc)
+library(stats)
+rcorr(dat.userex %>% filter(time %in% "sign up") %>% select(3:8) %>% as.matrix(), type = "pearson")[[1]] %>% round(2)
+```
+Correlations between the two items post 14 days:
+```{r}
+rcorr(dat.userex %>% filter(time %in% "post-14 days") %>% select(8:9) %>% as.matrix(), type = "pearson")[[1]] %>% round(2)
+```
+
+Correlations: look at whether users who expected the app to be helpful right signing up for the app would report they found the app to be helpful after 14 days (for users who completed the survey at both times) --> no correlations
+```{r}
+rcorr(dat.userex %>% filter(time %in% "sign up") %>% select(1,3) %>% 
+        left_join(
+      dat.userex %>% filter(time %in% "post-14 days") %>% select(1,9),
+      by = c("userid" = "userid")) %>% select(-userid) %>%as.matrix(), 
+      type = "pearson")[[1]] %>% round(2)
+```
+
+
+### missing data in usage data
+In dat.appuse file, NAs mean the app lost connection with this user’s phone due to a technical error, and do not have usage data for these individuals on those days. So missing values are MCAR or MAR and need to be addressed accordingly.--> use multiple imputation
+```{r}
+# https://sebastiansauer.github.io/sum-isna/
+# explore missing data in appuse data set
+# check how many are missing
+dat.appuse.demo %>% 
+  summarise_at(vars(day1:day14), funs(sum(is.na(.))))
+# days 11-14 have more missing values
+apply(dat.appuse.demo %>% select(day1:day14), 1, function(x)sum(is.na(x))) %>% table()
+
+apply(dat.appuse.demo %>% select(day1:day14), 1, function(x)sum(is.na(x))) %>% table()/3811
+# 928(24.35%) users missed 4 days
+
+# check if there's a consistent pattern between missing and other variables (e.g., region)
+dat.appuse.demo %>% 
+  group_by(metro_area) %>%
+  summarise_at(vars(day1:day14), funs(sum(is.na(.))/n()))  %>%
+  select(metro_area,day11:day14)
+```
+
+address missings using multiple imputations
+```{r}
+library(mice)
+set.seed(55555)
+dat.appuse.imp<- mice(dat.appuse.demo %>% select(day10:day14), m = 5)
+dat.appuse.imp.complete <- complete(dat.appuse.imp)
+glimpse(dat.appuse.imp.complete)
+# sum(is.na(dat.appuse.imp.complete))
+
+dat.appuse.demo.MIcompleted <- dat.appuse.demo %>%
+  select(userid:day9, age_range,gender,metro_area) %>%
+  bind_cols(dat.appuse.imp.complete) %>% 
+  select(userid,day1:day9,day10:day14,everything()) %>%
+  mutate(totalappuse = 
+           rowSums(.[,c(paste0("day",seq(1,14,1)))], na.rm = T)) 
+dat.appuse.demo.MIcompleted
+
+# dat.appuse.demo.MIcompleted$totalappuse = rowSums(dat.appuse.demo.MIcompleted%>%select(day1:day14))
+```
+
+```{r}
+dat.appuse.demo.MIcompleted %>% 
+  summarise_at(vars(day1:day14),funs(sum(., na.rm = TRUE))) %>%
+  pivot_longer(cols = day1:day14,
+               names_to = "day",
+               values_to = "totaldailyappuse") %>%
+  separate(col = "day", c("name","day"),"day") %>% select(-name) %>% 
+  mutate(day = as.numeric(day),
+         totaldailyappuse_avg = totaldailyappuse/3811) %>%
+  arrange(day) %>% 
+  ggplot(aes(x=day, y=totaldailyappuse_avg)) +
+  geom_line() + 
+  labs(title = "Total App Usage per Day per User(imputed)",
+       y = "Total App Usage",
+       x = "Day") +
+    scale_x_continuous(  breaks = c(1:14,1)) +
+    theme_classic()
+
+```
+
+# Typology/Profiles of Users
+#### LPA on users' responses immediately after signing up to examine the typology of users
+```{r}
+dat.userex %>% 
+  group_by(time) %>%
+  summarise_at(vars(-userid), funs(sum(!is.na(.)))) %>% t()
+
+dat.userex_signup <- dat.userex %>% filter(time %in% "sign up") %>% select(1, 3:8)
+glimpse(dat.userex_signup)
+dat.userex_post14 <- dat.userex %>% filter(time %in% "post-14 days") %>% select(1, 8:9)
+glimpse(dat.userex_post14)
+```
+Estimate Latent Profiles: Profile 4 has better model fit indices (lower AIC and BIC than Profile 3 and Profile 5, significant BLRT_p, more parsimonious than Profile 5)
+```{r}
+library(tidyLPA)
+library(mclust)
+
+dat.userex_signup %>% select("I expect this meditation app to be helpful.":"Recently I have felt stressed") -> dat.userex_signup_LPA
+names(dat.userex_signup_LPA) <- paste0(rep("item",6), seq(1:6))
+
+dat.userex_signup_LPA%>% 
+  single_imputation() %>%
+  estimate_profiles(n_profiles = 1:6,
+                    models = 1) -> userex_signup_LPA
+get_fit(userex_signup_LPA)
+
+#Profile 4 has better model fit indices (lower AIC and BIC than Profile 3 and Profile 5, significant BLRT_p, more parsimonious than Profile 5)
+
+dat.userex_signup_LPA %>% 
+  single_imputation() %>%
+  estimate_profiles(4, models = 1) -> dat.userex_signup_LPA_P4
+
+dat.userex_signup_LPA_P4 %>%
+  plot_profiles( rawdata = FALSE,add_line = TRUE)
+```
+
+```{r}
+get_data(dat.userex_signup_LPA_P4) %>% select(item1:item6,Class) %>% 
+  bind_cols(dat.userex_signup %>% select(userid)) -> dat.userex_signup_P4
+
+dat.userex_signup_P4 %>% 
+  group_by(Class) %>%
+  summarise_at(vars(item1:item6), ~mean(., na.rm = T)) %>%
+  pivot_longer(cols = item1:item6,
+               names_to = "item",
+               values_to = "rating") %>%
+  separate(col = item, c("item","itemnumber"),"item") %>% select(-item) %>%
+  mutate(itemnumber = as.numeric(itemnumber),
+         Class = as.character(Class)) -> dat.userex_signup_P4_long
+dat.userex_signup_P4_long
+
+```
+
+```{r}
+dat.userex_signup_P4_long %>%
+  rename(Profile = Class) %>%
+  ggplot(aes(x = itemnumber, y = rating, col = Profile)) +
+  geom_line() + 
+  labs(title = "4 User Profiles",
+       y = "Mean Response",
+       x = "Item") +
+  scale_x_continuous(  breaks = c(1:7,1)) +
+  theme_classic()
+```
+
+```{r, echo=FALSE}
+
+# dat.userex_signup_P4_long%>%
+#   ggplot() + 
+#   geom_line(data = dat.userex_signup_P4_long %>% filter(Class %in% "1"), 
+#             aes(x = itemnumber, y = rating),color = "blue") + 
+#     geom_line(data = dat.userex_signup_P4_long %>% filter(Class %in% "2"), 
+#             aes(x = itemnumber, y = rating),color = "red") +
+#     geom_line(data = dat.userex_signup_P4_long %>% filter(Class %in% "3"), 
+#             aes(x = itemnumber, y = rating),color = "black")+
+#     geom_line(data = dat.userex_signup_P4_long %>% filter(Class %in% "4"), 
+#             aes(x = itemnumber, y = rating),color = "green")+
+#   labs(title = "4 Profiles of Users",
+#        y = "Mean Response",
+#        x = "Item") + 
+#   theme_classic()
+``` 
+
+
+# What are driving total app usage?
+
+```{r}
+# combine usage data, demo data, and sign-up survey data + class
+dat.appuse.demo.MIcompleted.userex_signup_P4 <- dat.appuse.demo.MIcompleted %>%
+  left_join(dat.userex_signup_P4,
+            by = c("userid" = "userid")) %>%
+  mutate(Class = as.character(Class),
+         item_total = item1+item2+item3+item4+item5+item6) %>%
+  filter_at(vars(starts_with("item")), any_vars(!is.na(.)))
+
+glimpse(dat.appuse.demo.MIcompleted.userex_signup_P4)
+# 
+# dim(dat.userex_signup_P4)
+```
+
+there's a slight gender difference in total app use
+```{r, echo=FALSE}
+# # anova(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
+# #              select(totalappuse, metro_area)))
+# # anova(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
+# #              select(totalappuse, age_range)))
+# # #there's a gender difference
+# # anova(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
+# #              select(totalappuse, gender)))
+# # anova(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
+# #              select(totalappuse, gender,age_range)))
+# anova(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
+#              select(totalappuse
+#                     ,gender
+#                     ,age_range
+#                     ,metro_area
+#                     )))
+# TukeyHSD(aov(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
+#                   select(totalappuse
+#                     ,gender
+#                     ,age_range
+#                     ,metro_area
+#                     ))))
+```
+Age and Gender drives usage: Age (18 to 24) has higher usage compared to 25-34 (but not different from other age ranges); Males have higher usage compared to female (other genders do not different from female)
+```{r}
+# summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
+             # select(totalappuse, gender,age_range,metro_area)))
+summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
+             select(totalappuse, gender)))
+summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
+             select(totalappuse,age_range)))
+summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
+             select(totalappuse, metro_area)))
+```
+
+```{r}
+dat.appuse.demo.MIcompleted.userex_signup_P4 %>% group_by(gender) %>%
+  summarise_at(vars(totalappuse), funs(M = mean(., na.rm = T), 
+                                 sd = sd(., na.rm = T),
+                                 stderror = sd(., na.rm = T) / sqrt((length(.))))) %>%
+  mutate_if(is.numeric, ~round(., digits = 2)) %>%
+    ggplot(aes(x=gender,
+             y = M
+             )) + 
+  geom_bar(stat="identity") +
+  theme_classic() + 
+    labs(title = "Gender Differences in Total App Usage",
+      x = "Gender",
+      y = "Mean Total Usage") +
+  geom_text(aes(label = paste0(M)), hjust=1.2, color="white", size=3.5) +
+    theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 0, hjust = .5, vjust = .5, face = "plain"),
+        axis.text.y = element_text(color = "grey20", size = 10, angle = 45, hjust = 1, vjust = 0, face = "plain"), 
+        axis.title.x = element_text(color = "grey20", size = 12, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20", size = 12, angle = 90, hjust = .5, vjust = .5, face = "plain")) +   coord_flip()
+
+```
+
+```{r}
+
+dat.appuse.demo.MIcompleted.userex_signup_P4 %>% group_by(age_range) %>%
+  summarise_at(vars(totalappuse), funs(M = mean(., na.rm = T), 
+                                 sd = sd(., na.rm = T),
+                                 stderror = sd(., na.rm = T) / sqrt((length(.))))) %>%
+  mutate_if(is.numeric, ~round(., digits = 2)) %>%
+    ggplot(aes(x=age_range,
+             y = M
+             )) + 
+  geom_bar(stat="identity") +
+  theme_classic() + 
+    labs(title = "Age Differences in Total App Usage",
+      x = "Age Range",
+      y = "Mean Total Usage") +
+  geom_text(aes(label = paste0(M)), hjust=1.2, color="white", size=3.5) +
+    theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 0, hjust = .5, vjust = .5, face = "plain"),
+        axis.text.y = element_text(color = "grey20", size = 10, angle = 45, hjust = 1, vjust = 0, face = "plain"), 
+        axis.title.x = element_text(color = "grey20", size = 12, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20", size = 12, angle = 90, hjust = .5, vjust = .5, face = "plain")) +  coord_flip()
+
+```
+
+Users' latent profiles based on their sign-up surveys do not predict total usage
+```{r}
+summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
+             select(totalappuse, Class)))
+```
+
+correlations between 6 items and totalappuse: sign-up items do not correlate with totalappuse
+```{r}
+source("Correlation_matrix_function.R")
+correlations <- cormatrix(dat.appuse.demo.MIcompleted.userex_signup_P4 %>% dplyr::select(totalappuse, item1:item6)) 
+rownames(correlations) = names(correlations)
+correlations
+```
+
+Item 3 (I am able to focus on the present moment) and Item 2 (It is easy for me to concentrate on what I'm doing) (nearly significantly) predict total usage
+```{r}
+summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
+             select(totalappuse, item1:item6)))
+```
+sign-up user survey total score does not predict total usage
+```{r}
+summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
+             select(totalappuse, item_total)))
+```
+Item 2 ( "It is easy for me to concentrate on what I'm doing.") explains 2nd largest variance in total usage.
+```{r}
+library(rwa)
+dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
+  rwa(outcome = "totalappuse",
+      predictors = c(paste0(rep("item",6),seq(1:6))),
+      applysigns = TRUE) -> dat.out.rwa.userex
+
+dat.out.rwa.userex$"result" %>% 
+  mutate_if(is.numeric,~round(., 2)) %>%
+  ggplot(aes(x=Variables,
+             #reorder(Variables, -Sign.Rescaled.RelWeight),
+             # y = Sign.Rescaled.RelWeight
+             y = Rescaled.RelWeight
+             )) + 
+  geom_bar(stat="identity") +
+  theme_classic() + 
+    labs(title = "Relative Contribution of Survey Items (after sign up) to Total Usage",
+      x = "Item",
+      y = "Relative Contribution to Total Usage (%)") +
+  geom_text(aes(label = paste0(Rescaled.RelWeight)), hjust=-0.1, color="black", size=2.8) +
+    theme(axis.text.x = element_text(color = "grey20", size = 10, angle = 0, hjust = .5, vjust = .5, face = "plain"),
+        axis.text.y = element_text(color = "grey20", size = 10, angle = 0, hjust = 1, vjust = 0, face = "plain"), 
+        axis.title.x = element_text(color = "grey20", size = 12, angle = 0, hjust = .5, vjust = 0, face = "plain"),
+        axis.title.y = element_text(color = "grey20", size = 12, angle = 90, hjust = .5, vjust = .5, face = "plain")) +   coord_flip()
+
+```
+
+
+### what predicts change in stress level
+```{r}
+# library(lme4)
+library(nlme)
+dat.userex.recode <- dat.userex %>% mutate(
+  time_code = case_when(
+    time %in% "sign up" ~ "1",
+    time %in% "post-14 days" ~ "2"
+  ),
+  time_code = as.numeric(time_code)
+) #%>%
+  # mutate(time_code = as.factor(time_code),
+  #        time = as.factor(time),
+  #        userid = as.factor(userid))
+
+names(dat.userex.recode) <- c("userid","time",paste0(rep("item",7),seq(1:7)),"time_code")
+
+glimpse(dat.userex.recode)
+
+dat.appuse.demo.MIcompleted.userex_signup_P4.long <- dat.userex.recode %>% 
+  left_join(
+  dat.appuse.demo.MIcompleted.userex_signup_P4 %>% select(userid:totalappuse, Class,item1:item5),
+  by = c("userid" = "userid")
+)  %>%
+  mutate(total_item1thru5_signup = item1.y + item2.y + item3.y + item4.y + item5.y)
+glimpse(dat.appuse.demo.MIcompleted.userex_signup_P4.long)
+```
+
+whether there's an increase/decrease in stress level between sign-up and 14 days later: There's a significant decrease in the level of stress after using the app for 14 days
+```{r}
+dat.appuse.demo.MIcompleted.userex_signup_P4.long %>% group_by(time) %>% summarise_at(vars(item6),funs(mean(., rm.na = T)))
+
+# sum(is.na(dat.userex_stress_prepost))
+HLM_model_stress_prepost <- lme(fixed = item6~time_code, 
+                                random = ~1|userid,
+                                # random = ~time_code|userid, #time as random slope
+                            data = dat.appuse.demo.MIcompleted.userex_signup_P4.long) 
+summary(HLM_model_stress_prepost)
+```
+
+# What predicts decreased level of stress right after signing up and 14 days later?
+User profiles and Time, certain metro areas predict change in the levels of stress
+```{r}
+
+
+# Items 1,2,4 predict change
+HLM_model_stress_prepost_predictors <- lme(fixed =
+                                             item6 ~ time_code + totalappuse
+                                           + Class
+                                           # + item1.y + item2.y + item3.y + item4.y + item5.y
+                                           + total_item1thru5_signup
+                                           + age_range 
+                                           + gender 
+                                           + metro_area
+                                           , random = ~1|userid,
+                                #time as random slope
+                            data = dat.appuse.demo.MIcompleted.userex_signup_P4.long)
+summary(HLM_model_stress_prepost_predictors)
+# view(dat.appuse.demo.MIcompleted.userex_signup_P4.long)
+
+# anova(HLM_model_stress_prepost,HLM_model_stress_prepost_predictors)
+```
+```{r}
+dat.appuse.demo.MIcompleted.userex_signup_P4.long %>% group_by(time_code,Class) %>%
+  summarise_at(vars(item6), funs(M = mean(., na.rm = T), 
+                                 sd = sd(., na.rm = T),
+                                 stderror = sd(., na.rm = T) / sqrt((length(.))))) %>% 
+  mutate(Profile = as.character(Class)) %>%
+  ggplot(aes(x = time_code, y = M)) +
+  geom_line() + 
+  labs(title = "Change in Stress From Sign-up to post-14 days",
+       y = "Mean Stress Level",
+       x = "Time Point") + 
+  scale_x_continuous( breaks = c(1:2,1)) +
+  # scale_x_discrete( breaks = c("0","1"), labels = c("sign up","14 days later")) +
+  facet_wrap(~Profile) +
+    theme_bw() + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  
+
+```
+
