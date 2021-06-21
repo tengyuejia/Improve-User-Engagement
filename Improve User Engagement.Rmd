@@ -17,14 +17,14 @@ library(here)
 ```{r}
 # import data
 dat.appuse <- read_csv("Data/app_usage.csv", col_names = TRUE)
-dat.demo <- read_csv("Data/emographics.csv", col_names = TRUE)
+dat.demo <- read_csv("Data/demographics.csv", col_names = TRUE)
 dat.userex <- read_csv("Data/survey_responses.csv", col_names = TRUE)
 glimpse(dat.appuse) #Rows: 3,811
 glimpse(dat.demo) #Rows: 3,811
 glimpse(dat.userex) #Rows: 2,800
 ```
 
-There are 3811 total unique users in  app_usage and demographic data sets. There are only 1865 unique users in the ex survey data sets. In the ex survey data, only 935 users completed the survey twice (immediately after signing up and 14 days post); 930 users only completed it once.
+
 ```{r}
 # check data points for each data set
 length(unique(dat.appuse$userid)) #N = 3811
@@ -53,7 +53,7 @@ glimpse(dat.appuse.demo)
 
 ## Data Exploration
 
-### Missing data over 14 days
+### Missing data 
 
 ```{r}
 dat.appuse.demo %>% 
@@ -98,8 +98,8 @@ dat.appuse.demo %>%
 
 ```
 
-### App Usage Trend over 14 days
-Total App Usage per day for 14 days (before imputation for missing data; averaged by total number of users)
+### App Usage Trend overtime
+Total App Usage per day (before imputation for missing data; averaged by total number of users)
 ```{r}
  dat.appuse.demo %>% 
     summarise(user_size = n())
@@ -125,7 +125,7 @@ dat.appuse.demo %>%
   scale_x_continuous(  breaks = c(1:14,1)) +
     theme_classic()
 ```
-Total App Usage per day for 14 days (before imputation for missing data; averaged by total available data points per day)
+Total App Usage per day over time (before imputation for missing data; averaged by total available data points per day)
 ```{r}
 # https://uc-r.github.io/ts_exploration
 # library(forecast)
@@ -160,7 +160,7 @@ dat.appuse.demo %>%
 #        x = "Day")
  
 ```
-For each metro area, there's a downward trend of total app usage (sum of app usage, averaged by the number of users in each area) over the span of 14 days. Missing data in days 10-14 are not imputed here.
+For each area, there's a downward trend of total app usage (sum of app usage, averaged by the number of users in each area) over the span of 14 days. Missing data in days 10-14 are not imputed here.
 ```{r}
 dat.appuse.demo %>% 
   group_by(metro_area) %>%
@@ -219,7 +219,7 @@ dat.appuse.demo_usage_byregion %>%
 ```
 ### explore trends in different demographics (metro_area, gender, age_range)
 #### metro_area
-Metro areas with top 5 user sizes: LA, SF, None of Above, DS, SEA, NYC
+
 ```{r}
 # https://stackoverflow.com/questions/30385415/r-map-plot-without-longitude-and-latitude 
 # length(unique(dat.appuse.demo$userid)) # N = 3811
@@ -242,7 +242,7 @@ dat.appuse.demo %>%
   theme_classic() +
   coord_flip() 
 ```
-There's not much difference in terms of total usage over 14 days (averaged by the numbers of users) in different metro areas
+There's not much difference in terms of total usage overtimee (averaged by the numbers of users) in different areas
 ```{r}
 dat.appuse.demo %>% 
   group_by(metro_area) %>%
@@ -327,7 +327,7 @@ dat.appuse.demo %>%
 ```
 
 #### age_range
-core users are within 25 to 34 age range. Not much differences in terms of average total use
+
 ```{r}
 table(dat.appuse.demo$age_range)
 
@@ -370,7 +370,8 @@ dat.appuse.demo %>%
 ```
 
 ### User Experience Data
-First, look at descriptive statistics: there's a slight decrease in stress level after using the app for 14 days
+First, look at descriptive statistics
+
 ```{r}
 glimpse(dat.userex)
 
@@ -413,7 +414,7 @@ Correlations between the two items post 14 days:
 rcorr(dat.userex %>% filter(time %in% "post-14 days") %>% select(8:9) %>% as.matrix(), type = "pearson")[[1]] %>% round(2)
 ```
 
-Correlations: look at whether users who expected the app to be helpful right signing up for the app would report they found the app to be helpful after 14 days (for users who completed the survey at both times) --> no correlations
+
 ```{r}
 rcorr(dat.userex %>% filter(time %in% "sign up") %>% select(1,3) %>% 
         left_join(
@@ -424,7 +425,7 @@ rcorr(dat.userex %>% filter(time %in% "sign up") %>% select(1,3) %>%
 
 
 ### missing data in usage data
-In dat.appuse file, NAs mean the app lost connection with this user’s phone due to a technical error, and do not have usage data for these individuals on those days. So missing values are MCAR or MAR and need to be addressed accordingly.--> use multiple imputation
+In dat.appuse file: missing values are MCAR or MAR and need to be addressed accordingly.--> use multiple imputation
 ```{r}
 # https://sebastiansauer.github.io/sum-isna/
 # explore missing data in appuse data set
@@ -608,7 +609,8 @@ there's a slight gender difference in total app use
 #                     ,metro_area
 #                     ))))
 ```
-Age and Gender drives usage: Age (18 to 24) has higher usage compared to 25-34 (but not different from other age ranges); Males have higher usage compared to female (other genders do not different from female)
+Age and Gender drives usage
+
 ```{r}
 # summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
              # select(totalappuse, gender,age_range,metro_area)))
@@ -665,13 +667,12 @@ dat.appuse.demo.MIcompleted.userex_signup_P4 %>% group_by(age_range) %>%
 
 ```
 
-Users' latent profiles based on their sign-up surveys do not predict total usage
+Users' latent profiles ~ total usage
 ```{r}
 summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
              select(totalappuse, Class)))
 ```
-
-correlations between 6 items and totalappuse: sign-up items do not correlate with totalappuse
+sign-up items ~ totalappuse
 ```{r}
 source("Correlation_matrix_function.R")
 correlations <- cormatrix(dat.appuse.demo.MIcompleted.userex_signup_P4 %>% dplyr::select(totalappuse, item1:item6)) 
@@ -679,7 +680,7 @@ rownames(correlations) = names(correlations)
 correlations
 ```
 
-Item 3 (I am able to focus on the present moment) and Item 2 (It is easy for me to concentrate on what I'm doing) (nearly significantly) predict total usage
+
 ```{r}
 summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
              select(totalappuse, item1:item6)))
@@ -689,7 +690,8 @@ sign-up user survey total score does not predict total usage
 summary(lm(totalappuse~., data = dat.appuse.demo.MIcompleted.userex_signup_P4 %>% 
              select(totalappuse, item_total)))
 ```
-Item 2 ( "It is easy for me to concentrate on what I'm doing.") explains 2nd largest variance in total usage.
+
+
 ```{r}
 library(rwa)
 dat.appuse.demo.MIcompleted.userex_signup_P4 %>%
